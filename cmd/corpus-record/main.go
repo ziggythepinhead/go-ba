@@ -95,6 +95,8 @@ func main() {
 	out := flag.String("out", "testdata/corpus.json", "output corpus file")
 	pace := flag.Duration("pace", 300*time.Millisecond, "sleep between requests")
 	timeout := flag.Duration("timeout", 60*time.Second, "per-request timeout")
+	shapes := flag.String("shapes", "", "prod shapes JSONL; when set, cases come from real traffic shapes instead of the synthetic matrix")
+	maxCases := flag.Int("max-cases", 320, "case cap in -shapes mode")
 	flag.Parse()
 	if *oracle == "" {
 		log.Fatal("-oracle is required")
@@ -104,6 +106,33 @@ func main() {
 	c := corpus.Corpus{RecordedAt: time.Now().UTC().Format(time.RFC3339), Oracle: *oracle}
 
 	total, failed := 0, 0
+	if *shapes != "" {
+		shapeCases, err := buildShapeCases(*shapes, *maxCases)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("built %d cases from prod shapes", len(shapeCases))
+		for _, sc := range shapeCases {
+			body, err := json.Marshal(sc.payload)
+			if err != nil {
+				log.Fatalf("%s: marshal: %v", sc.name, err)
+			}
+			status, resp, err := post(client, *oracle+"/api/v2/quote", body)
+			total++
+			if err != nil {
+				failed++
+				log.Printf("FAIL %s: %v", sc.name, err)
+				continue
+			}
+			c.Cases = append(c.Cases, corpus.Case{Name: sc.name, Request: body, Status: status, Response: resp})
+			if total%25 == 0 {
+				log.Printf("progress %d/%d", total, len(shapeCases))
+			}
+			time.Sleep(*pace)
+		}
+		writeCorpus(c, *out, total, failed)
+		return
+	}
 	for _, r := range routes {
 		for _, p := range parcels {
 			for _, variant := range []struct {
@@ -138,7 +167,11 @@ func main() {
 		}
 	}
 
-	f, err := os.Create(*out)
+	writeCorpus(c, *out, total, failed)
+}
+
+func writeCorpus(c corpus.Corpus, out string, total, failed int) {
+	f, err := os.Create(out)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -150,7 +183,7 @@ func main() {
 	if err := f.Close(); err != nil {
 		log.Fatal(err)
 	}
-	fmt.Printf("recorded %d/%d cases -> %s\n", len(c.Cases), total, *out)
+	fmt.Printf("recorded %d/%d cases (failed=%d) -> %s\n", len(c.Cases), total, failed, out)
 	if failed > 0 {
 		os.Exit(1)
 	}
