@@ -118,6 +118,11 @@ type Snapshot struct {
 
 	PEVersion string // latest by date_created
 
+	// CourierCountryIDs mirrors CourierDAO::getAllCourierCountryIds (couriers joined to countries
+	// by country_code) — DefaultPickupDateProvider steps the friendly pickup date past holidays in
+	// ANY of these countries.
+	CourierCountryIDs []int
+
 	Rows map[string]int // table -> row count (for /metrics and reload-change logging)
 }
 
@@ -183,7 +188,29 @@ func Load(ctx context.Context, db *sql.DB) (*Snapshot, error) {
 	if err := s.loadPEVersion(ctx, db); err != nil {
 		return nil, fmt.Errorf("price_engine_version: %w", err)
 	}
+	if err := s.loadCourierCountryIDs(ctx, db); err != nil {
+		return nil, fmt.Errorf("courier countries: %w", err)
+	}
 	return s, nil
+}
+
+func (s *Snapshot) loadCourierCountryIDs(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx,
+		`SELECT country.id FROM ns_catalog_couriers courier
+		 INNER JOIN countries country ON courier.country_code = country.country_code`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		s.CourierCountryIDs = append(s.CourierCountryIDs, id)
+		s.Rows["courier_country_ids"]++
+	}
+	return rows.Err()
 }
 
 func (s *Snapshot) loadHolidays(ctx context.Context, db *sql.DB) error {

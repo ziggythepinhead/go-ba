@@ -11,8 +11,13 @@ import (
 	"github.com/eurosender/go-ba/internal/lifecycle"
 )
 
-func NewMux(m *lifecycle.Manager) *http.ServeMux {
+// NewMux builds the operational mux; quoteHandler (optional, Phase 2+) is mounted on
+// POST /api/v2/quote when non-nil.
+func NewMux(m *lifecycle.Manager, quoteHandler http.HandlerFunc) *http.ServeMux {
 	mux := http.NewServeMux()
+	if quoteHandler != nil {
+		mux.HandleFunc("POST /api/v2/quote", quoteHandler)
+	}
 
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

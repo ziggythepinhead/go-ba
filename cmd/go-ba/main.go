@@ -23,6 +23,8 @@ import (
 
 	"github.com/eurosender/go-ba/internal/httpapi"
 	"github.com/eurosender/go-ba/internal/lifecycle"
+	"github.com/eurosender/go-ba/internal/pe"
+	"github.com/eurosender/go-ba/internal/quote"
 )
 
 func main() {
@@ -49,7 +51,18 @@ func main() {
 	defer stop()
 	go manager.Run(ctx)
 
-	server := &http.Server{Addr: addr, Handler: httpapi.NewMux(manager)}
+	var quoteHandler http.HandlerFunc
+	if peURL := os.Getenv("GO_BA_PE_URL"); peURL != "" {
+		svc := &quote.Service{
+			Snapshot:        manager.Snapshot,
+			PE:              pe.NewClient(peURL, os.Getenv("GO_BA_PE_SECRET")),
+			VersionOverride: os.Getenv("GO_BA_PE_VERSION"),
+		}
+		quoteHandler = svc.Handle
+		log.Printf("quote path enabled against %s", peURL)
+	}
+
+	server := &http.Server{Addr: addr, Handler: httpapi.NewMux(manager, quoteHandler)}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
