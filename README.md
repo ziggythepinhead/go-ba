@@ -32,9 +32,11 @@ proven volatile — none needed so far.
 1. ~~Reference-data snapshot + lifecycle~~ (done — prepare-on-boot, poller, readiness, /metrics).
 2. ~~Skeleton path: decode → resolve → **one go-pe `/api/quote/services` call** → assemble → encode~~ (done).
 3. Parity grind on the corpus (use `testdata/corpus-prod.json` — real prod shapes) + `GO_BA_SHADOW` tee from the php QuoteAction.
-4. **Endpoint #2: `GET /api/v2/countries/blocked-routes`** — the blocked-routes matrix lives in the
-   snapshot and answers in microseconds, with the existing `populateBlockedRoutesFromOrders` cron
-   precomputing misses (php implementation costs ~200ms and calls the PE on store misses). Flat
-   string-list response → trivially corpus-gateable → can ship BEFORE full quote parity as go-ba's
-   first production surface.
+4. **Endpoint #2: `GET /api/v2/countries/blocked-routes`** — the matrix lives in the snapshot and
+   answers in microseconds. Domain rule: **"no prices, no route"** — it's a pure function of the
+   published PE version, so go-ba precomputes ALL combos per publish itself (~1,780 routes from
+   price_engine_route × ~3 user types via go-pe bulk, async off the version poller, atomic swap;
+   absent pairs = constant fully-blocked). No php blocked_routes store/cron dependency; top-client
+   per-user rows lazy/proxied. Flat string-list response → trivially corpus-gateable → can ship
+   BEFORE full quote parity as go-ba's first production surface.
 5. Traefik route-split cutover, php path kept warm.
