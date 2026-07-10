@@ -29,7 +29,12 @@ proven volatile — none needed so far.
 
 ## Next phases (see the architecture review §12)
 
-1. Reference-data snapshot + lifecycle (prepare-on-boot, poller, readiness, /metrics) — lift from go-pe.
-2. Skeleton path: decode → resolve → **one go-pe `/api/quote/services` call** → assemble → encode.
-3. Parity grind on the corpus + `GO_BA_SHADOW` tee from the php QuoteAction.
-4. Traefik route-split cutover, php path kept warm.
+1. ~~Reference-data snapshot + lifecycle~~ (done — prepare-on-boot, poller, readiness, /metrics).
+2. ~~Skeleton path: decode → resolve → **one go-pe `/api/quote/services` call** → assemble → encode~~ (done).
+3. Parity grind on the corpus (use `testdata/corpus-prod.json` — real prod shapes) + `GO_BA_SHADOW` tee from the php QuoteAction.
+4. **Endpoint #2: `GET /api/v2/countries/blocked-routes`** — the blocked-routes matrix lives in the
+   snapshot and answers in microseconds, with the existing `populateBlockedRoutesFromOrders` cron
+   precomputing misses (php implementation costs ~200ms and calls the PE on store misses). Flat
+   string-list response → trivially corpus-gateable → can ship BEFORE full quote parity as go-ba's
+   first production surface.
+5. Traefik route-split cutover, php path kept warm.
