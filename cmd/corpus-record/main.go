@@ -97,12 +97,14 @@ func main() {
 	timeout := flag.Duration("timeout", 60*time.Second, "per-request timeout")
 	shapes := flag.String("shapes", "", "prod shapes JSONL; when set, cases come from real traffic shapes instead of the synthetic matrix")
 	maxCases := flag.Int("max-cases", 320, "case cap in -shapes mode")
+	hostHeader := flag.String("host-header", "", "override the HTTP Host header (local devbox oracle behind a port-forward, e.g. be.docker.localhost)")
 	flag.Parse()
 	if *oracle == "" {
 		log.Fatal("-oracle is required")
 	}
 
 	client := &http.Client{Timeout: *timeout}
+	postHost = *hostHeader
 	c := corpus.Corpus{RecordedAt: time.Now().UTC().Format(time.RFC3339), Oracle: *oracle}
 
 	total, failed := 0, 0
@@ -189,10 +191,16 @@ func writeCorpus(c corpus.Corpus, out string, total, failed int) {
 	}
 }
 
+// postHost, when non-empty, overrides the Host header (devbox nginx routes by server_name).
+var postHost string
+
 func post(client *http.Client, url string, body []byte) (int, []byte, error) {
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
+	}
+	if postHost != "" {
+		req.Host = postHost
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://www.eurosender.com")

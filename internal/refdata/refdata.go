@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -44,24 +46,32 @@ type TermsConditionsCourier struct {
 }
 
 type InsurancePackage struct {
-	ID                       int
-	Description              string
-	InsurerID                int
-	MinContentValue          float64
-	MaxContentValue          float64
-	PriceExclVat             float64
-	MinCost                  float64
-	ShipmentValueCostFactor  float64
-	AbsoluteMargin           float64
-	RelativeMargin           float64
+	ID                      int
+	Description             string
+	InsurerID               int
+	MinContentValue         float64         // NULL ⇒ 0 in php arithmetic
+	MaxContentValue         sql.NullFloat64 // NULL ⇒ 200 (Insurance::DEFAULT_FREE_INSURANCE_MAX_CONTENT_VALUE)
+	PriceExclVat            sql.NullFloat64
+	MinCost                 float64 // NULL ⇒ 0
+	ShipmentValueCostFactor float64
+	AbsoluteMargin          float64
+	RelativeMargin          float64
+}
+
+// MaxContent mirrors InsurancePackage::getMaxContentValue (NULL ⇒ 200).
+func (p *InsurancePackage) MaxContent() float64 {
+	if p.MaxContentValue.Valid {
+		return p.MaxContentValue.Float64
+	}
+	return 200
 }
 
 type Extra struct {
 	ID                 int
 	Name               string
 	Description        string
-	Value              string
-	NetCost            float64
+	Value              sql.NullFloat64 // ExtraList::getNetPrice (nullable)
+	NetCost            float64         // net_cost ?? 0.0
 	Type               string
 	InsurancePackageID sql.NullInt64
 }
@@ -86,30 +96,36 @@ type Route struct {
 }
 
 type Country struct {
-	ID          int
-	Code        string
-	Name        string
-	EU          bool
-	TimeZone    string
-	MainlandID  sql.NullInt64
+	ID         int
+	Code       string
+	Name       string
+	EU         bool
+	TimeZone   string
+	MainlandID sql.NullInt64
 }
 
 // Snapshot is the immutable, fully-indexed reference model. Build once, swap atomically.
 type Snapshot struct {
 	LoadedAt time.Time
 
-	HolidaysByCountry map[int][]NonWorkingDay          // active only, sorted by date
-	HolidaysByDate    map[string][]NonWorkingDay       // active only
-	ExceptionsByCourier map[int]map[string]bool        // courierID -> date -> working (enabled rows)
-	ExceptionsAnyCourier map[string]bool               // date -> some courier works
+	HolidaysByCountry    map[int][]NonWorkingDay    // active only, sorted by date
+	HolidaysByDate       map[string][]NonWorkingDay // active only
+	ExceptionsByCourier  map[int]map[string]bool    // courierID -> date -> working (enabled rows)
+	ExceptionsAnyCourier map[string]bool            // date -> some courier works
 
-	ActiveTerms          *TermsConditions              // newest active
+	ActiveTerms          *TermsConditions // newest active
 	ActiveTermsByCourier map[int]*TermsConditionsCourier
 
-	InsuranceByID          map[int]*InsurancePackage
-	InsuranceByInsurer     map[int][]*InsurancePackage // sorted by MinContentValue
-	Extras                 []Extra
-	ExtrasByID             map[int]*Extra
+	InsuranceByID      map[int]*InsurancePackage
+	InsuranceByInsurer map[int][]*InsurancePackage // sorted by MinContentValue
+	Extras             []Extra
+	ExtrasByID         map[int]*Extra
+	// PackageByExtraID mirrors InsurancePackageDAO::findOneByExtraId (join through
+	// ns_catalog_order_extras_list.insurance_package_id).
+	PackageByExtraID map[int]*InsurancePackage
+	// FreeInsuranceExtraByCourier: extra id of the courier's zero-price insurance package
+	// (insurer_id = courierId AND price_excl_vat = 0, lowest-id row) — basic-insurance default branch.
+	FreeInsuranceExtraByCourier map[int]int
 
 	vatRatesByTypeCountry map[string][]vatRateWindow // "type|CC" -> windows sorted by ValidFrom desc
 
@@ -122,6 +138,30 @@ type Snapshot struct {
 	// by country_code) — DefaultPickupDateProvider steps the friendly pickup date past holidays in
 	// ANY of these countries.
 	CourierCountryIDs []int
+
+	// CourierCountryByID mirrors CourierDAO::getCourierCountryId (Q6a).
+	CourierCountryByID map[int]int
+
+	// CutoffByCourierServiceType mirrors courier_to_service_type.internal_cut_off_time keyed
+	// (courier_id, service_type_id); first row per pair wins (php FIND first-row semantics).
+	// Missing pair -> php DEFAULT_MAX_ORDERING_TIME "14:00".
+	CutoffByCourierServiceType map[[2]int]string
+
+	// VatRateByID mirrors vat_rate.rate lookups (VatCalculator::applyVat, options.vatRate).
+	VatRateByID map[int]float64
+
+	// RegionIDByCountryAndName mirrors RegionDAO::findOneByCountryIdAndName — MySQL CI collation,
+	// so keys are lowercased names.
+	RegionIDByCountryAndName map[int]map[string]int
+
+	// ExchangeRateByCode: latest currency_exchange_rate row column per code (Q9), multiplied at
+	// use-site by ns_catalog_currencies.exchange_rate_percentage (ExchangePercentageByCode).
+	ExchangeRateByCode       map[string]float64
+	ExchangePercentageByCode map[string]float64
+
+	// PickupBlockedByCountryCourier mirrors courier_limited_service_country rows with
+	// service='Pickup Request' AND blocked_for_pickup=1, keyed (country_id, courier_id).
+	PickupBlockedByCountryCourier map[[2]int]bool
 
 	Rows map[string]int // table -> row count (for /metrics and reload-change logging)
 }
@@ -146,19 +186,28 @@ func (s *Snapshot) VatRateIDFor(vatType, countryCode, dateYMD string) (int, bool
 // Load reads all reference tables in one pass and builds the indexed snapshot.
 func Load(ctx context.Context, db *sql.DB) (*Snapshot, error) {
 	s := &Snapshot{
-		LoadedAt:             time.Now(),
-		HolidaysByCountry:    map[int][]NonWorkingDay{},
-		HolidaysByDate:       map[string][]NonWorkingDay{},
-		ExceptionsByCourier:  map[int]map[string]bool{},
-		ExceptionsAnyCourier: map[string]bool{},
-		ActiveTermsByCourier: map[int]*TermsConditionsCourier{},
-		InsuranceByID:        map[int]*InsurancePackage{},
-		InsuranceByInsurer:   map[int][]*InsurancePackage{},
-		ExtrasByID:           map[int]*Extra{},
-		vatRatesByTypeCountry: map[string][]vatRateWindow{},
-		RoutesByFromTo:       map[[2]int]*Route{},
-		CountriesByID:        map[int]*Country{},
-		Rows:                 map[string]int{},
+		LoadedAt:                      time.Now(),
+		HolidaysByCountry:             map[int][]NonWorkingDay{},
+		HolidaysByDate:                map[string][]NonWorkingDay{},
+		ExceptionsByCourier:           map[int]map[string]bool{},
+		ExceptionsAnyCourier:          map[string]bool{},
+		ActiveTermsByCourier:          map[int]*TermsConditionsCourier{},
+		InsuranceByID:                 map[int]*InsurancePackage{},
+		InsuranceByInsurer:            map[int][]*InsurancePackage{},
+		ExtrasByID:                    map[int]*Extra{},
+		PackageByExtraID:              map[int]*InsurancePackage{},
+		FreeInsuranceExtraByCourier:   map[int]int{},
+		vatRatesByTypeCountry:         map[string][]vatRateWindow{},
+		RoutesByFromTo:                map[[2]int]*Route{},
+		CountriesByID:                 map[int]*Country{},
+		CourierCountryByID:            map[int]int{},
+		CutoffByCourierServiceType:    map[[2]int]string{},
+		VatRateByID:                   map[int]float64{},
+		RegionIDByCountryAndName:      map[int]map[string]int{},
+		ExchangeRateByCode:            map[string]float64{},
+		ExchangePercentageByCode:      map[string]float64{},
+		PickupBlockedByCountryCourier: map[[2]int]bool{},
+		Rows:                          map[string]int{},
 	}
 
 	if err := s.loadHolidays(ctx, db); err != nil {
@@ -191,23 +240,162 @@ func Load(ctx context.Context, db *sql.DB) (*Snapshot, error) {
 	if err := s.loadCourierCountryIDs(ctx, db); err != nil {
 		return nil, fmt.Errorf("courier countries: %w", err)
 	}
+	if err := s.loadCutoffs(ctx, db); err != nil {
+		return nil, fmt.Errorf("courier_to_service_type: %w", err)
+	}
+	if err := s.loadRegions(ctx, db); err != nil {
+		return nil, fmt.Errorf("region: %w", err)
+	}
+	if err := s.loadExchangeRates(ctx, db); err != nil {
+		return nil, fmt.Errorf("currency_exchange_rate: %w", err)
+	}
+	if err := s.loadPickupBlocked(ctx, db); err != nil {
+		return nil, fmt.Errorf("courier_limited_service_country: %w", err)
+	}
 	return s, nil
+}
+
+func (s *Snapshot) loadPickupBlocked(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx,
+		`SELECT country_id, courier_id FROM courier_limited_service_country
+		 WHERE service = 'Pickup Request' AND blocked_for_pickup = 1`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var countryID, courierID int
+		if err := rows.Scan(&countryID, &courierID); err != nil {
+			return err
+		}
+		s.PickupBlockedByCountryCourier[[2]int{countryID, courierID}] = true
+		s.Rows["courier_limited_service_country"]++
+	}
+	return rows.Err()
+}
+
+func (s *Snapshot) loadCutoffs(ctx context.Context, db *sql.DB) error {
+	// No ORDER BY (the table has no id column): natural order = table order, first row per
+	// (courier, serviceType) pair wins, matching the php DAO's GetRow semantics.
+	rows, err := db.QueryContext(ctx,
+		`SELECT courier_id, service_type_id, COALESCE(TIME_FORMAT(internal_cut_off_time, '%H:%i:%s'), '')
+		 FROM courier_to_service_type`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var courierID, serviceTypeID int
+		var cutoff string
+		if err := rows.Scan(&courierID, &serviceTypeID, &cutoff); err != nil {
+			return err
+		}
+		s.Rows["courier_to_service_type"]++
+		key := [2]int{courierID, serviceTypeID}
+		if _, ok := s.CutoffByCourierServiceType[key]; !ok && cutoff != "" {
+			s.CutoffByCourierServiceType[key] = cutoff
+		}
+	}
+	return rows.Err()
+}
+
+func (s *Snapshot) loadRegions(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, `SELECT id, country_id, COALESCE(name,'') FROM region`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, countryID int
+		var name string
+		if err := rows.Scan(&id, &countryID, &name); err != nil {
+			return err
+		}
+		s.Rows["region"]++
+		if s.RegionIDByCountryAndName[countryID] == nil {
+			s.RegionIDByCountryAndName[countryID] = map[string]int{}
+		}
+		lower := strings.ToLower(name)
+		if _, ok := s.RegionIDByCountryAndName[countryID][lower]; !ok {
+			s.RegionIDByCountryAndName[countryID][lower] = id
+		}
+	}
+	return rows.Err()
+}
+
+func (s *Snapshot) loadExchangeRates(ctx context.Context, db *sql.DB) error {
+	// Latest currency_exchange_rate row: one column per currency code (Q9).
+	rows, err := db.QueryContext(ctx, `SELECT * FROM currency_exchange_rate ORDER BY created DESC LIMIT 1`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	cols, err := rows.Columns()
+	if err != nil {
+		return err
+	}
+	if rows.Next() {
+		vals := make([]any, len(cols))
+		for i := range vals {
+			var v sql.NullFloat64
+			vals[i] = &v
+		}
+		// created/id columns fail float scan; use RawBytes-tolerant scan instead
+		raw := make([]sql.RawBytes, len(cols))
+		ptrs := make([]any, len(cols))
+		for i := range raw {
+			ptrs[i] = &raw[i]
+		}
+		if err := rows.Scan(ptrs...); err != nil {
+			return err
+		}
+		for i, c := range cols {
+			if c == "id" || c == "created" {
+				continue
+			}
+			if f, err := strconv.ParseFloat(string(raw[i]), 64); err == nil {
+				s.ExchangeRateByCode[strings.ToUpper(c)] = f
+			}
+		}
+		s.Rows["currency_exchange_rate"] = 1
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	crows, err := db.QueryContext(ctx,
+		`SELECT COALESCE(code,''), COALESCE(exchange_rate_percentage,0) FROM ns_catalog_currencies`)
+	if err != nil {
+		return err
+	}
+	defer crows.Close()
+	for crows.Next() {
+		var code string
+		var pct float64
+		if err := crows.Scan(&code, &pct); err != nil {
+			return err
+		}
+		s.Rows["ns_catalog_currencies"]++
+		s.ExchangePercentageByCode[strings.ToUpper(code)] = pct
+	}
+	return crows.Err()
 }
 
 func (s *Snapshot) loadCourierCountryIDs(ctx context.Context, db *sql.DB) error {
 	rows, err := db.QueryContext(ctx,
-		`SELECT country.id FROM ns_catalog_couriers courier
+		`SELECT courier.id, country.id FROM ns_catalog_couriers courier
 		 INNER JOIN countries country ON courier.country_code = country.country_code`)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var id int
-		if err := rows.Scan(&id); err != nil {
+		var courierID, countryID int
+		if err := rows.Scan(&courierID, &countryID); err != nil {
 			return err
 		}
-		s.CourierCountryIDs = append(s.CourierCountryIDs, id)
+		s.CourierCountryIDs = append(s.CourierCountryIDs, countryID)
+		s.CourierCountryByID[courierID] = countryID
 		s.Rows["courier_country_ids"]++
 	}
 	return rows.Err()
@@ -317,10 +505,10 @@ func (s *Snapshot) loadTerms(ctx context.Context, db *sql.DB) error {
 
 func (s *Snapshot) loadInsurance(ctx context.Context, db *sql.DB) error {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, COALESCE(description,''), insurer_id, COALESCE(min_content_value,0), COALESCE(max_content_value,0),
-		        COALESCE(price_excl_vat,0), COALESCE(min_cost,0), COALESCE(shipment_value_cost_factor,0),
+		`SELECT id, COALESCE(description,''), insurer_id, COALESCE(min_content_value,0), max_content_value,
+		        price_excl_vat, COALESCE(min_cost,0), COALESCE(shipment_value_cost_factor,0),
 		        COALESCE(absolute_margin,0), COALESCE(relative_margin,0)
-		 FROM insurance_package`)
+		 FROM insurance_package ORDER BY id`)
 	if err != nil {
 		return err
 	}
@@ -344,9 +532,9 @@ func (s *Snapshot) loadInsurance(ctx context.Context, db *sql.DB) error {
 
 func (s *Snapshot) loadExtras(ctx context.Context, db *sql.DB) error {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, COALESCE(name,''), COALESCE(description,''), COALESCE(value,''), COALESCE(net_cost,0),
+		`SELECT id, COALESCE(name,''), COALESCE(description,''), value, COALESCE(net_cost,0),
 		        COALESCE(type,''), insurance_package_id
-		 FROM ns_catalog_order_extras_list`)
+		 FROM ns_catalog_order_extras_list ORDER BY id`)
 	if err != nil {
 		return err
 	}
@@ -359,10 +547,45 @@ func (s *Snapshot) loadExtras(ctx context.Context, db *sql.DB) error {
 		s.Rows["ns_catalog_order_extras_list"]++
 		s.Extras = append(s.Extras, e)
 	}
-	for i := range s.Extras {
-		s.ExtrasByID[s.Extras[i].ID] = &s.Extras[i]
+	if err := rows.Err(); err != nil {
+		return err
 	}
-	return rows.Err()
+	for i := range s.Extras {
+		e := &s.Extras[i]
+		s.ExtrasByID[e.ID] = e
+		// findOneByExtraId join: extra → its insurance package (first extra per package wins the
+		// reverse map below via the zero-price scan)
+		if e.InsurancePackageID.Valid {
+			if p, ok := s.InsuranceByID[int(e.InsurancePackageID.Int64)]; ok {
+				if _, dup := s.PackageByExtraID[e.ID]; !dup {
+					s.PackageByExtraID[e.ID] = p
+				}
+			}
+		}
+	}
+	// FreeInsuranceExtraByCourier: for each insurer, the lowest-id package with price_excl_vat = 0,
+	// then the lowest-id extra pointing at it (php first-row semantics).
+	for insurer, pkgs := range s.InsuranceByInsurer {
+		var zero *InsurancePackage
+		for _, p := range pkgs {
+			if p.PriceExclVat.Valid && p.PriceExclVat.Float64 == 0.0 {
+				if zero == nil || p.ID < zero.ID {
+					zero = p
+				}
+			}
+		}
+		if zero == nil {
+			continue
+		}
+		for i := range s.Extras {
+			e := &s.Extras[i]
+			if e.InsurancePackageID.Valid && int(e.InsurancePackageID.Int64) == zero.ID {
+				s.FreeInsuranceExtraByCourier[insurer] = e.ID
+				break
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Snapshot) loadVatRates(ctx context.Context, db *sql.DB) error {
@@ -383,6 +606,7 @@ func (s *Snapshot) loadVatRates(ctx context.Context, db *sql.DB) error {
 		key := r.VatType + "|" + r.CountryCode
 		s.vatRatesByTypeCountry[key] = append(s.vatRatesByTypeCountry[key],
 			vatRateWindow{ValidFrom: validFrom, RateID: r.ID, Rate: r.Rate})
+		s.VatRateByID[r.ID] = r.Rate
 	}
 	for _, ws := range s.vatRatesByTypeCountry {
 		sort.Slice(ws, func(i, j int) bool { return ws[i].ValidFrom > ws[j].ValidFrom })

@@ -33,7 +33,9 @@ func main() {
 	tolerance := flag.Float64("tolerance", 1e-9, "float comparison tolerance")
 	ignore := flag.String("ignore", "", "comma-separated path prefixes to ignore (indices as *)")
 	maxDiffs := flag.Int("max-diffs", 10, "diffs printed per case")
+	hostHeader := flag.String("host-header", "", "override the HTTP Host header (local devbox target behind a port-forward)")
 	flag.Parse()
+	postHost = *hostHeader
 	if *target == "" {
 		log.Fatal("-target is required")
 	}
@@ -118,10 +120,16 @@ func main() {
 	os.Exit(1)
 }
 
+// postHost, when non-empty, overrides the Host header (devbox nginx routes by server_name).
+var postHost string
+
 func post(client *http.Client, url string, body []byte) (int, []byte, error) {
 	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err
+	}
+	if postHost != "" {
+		req.Host = postHost
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Origin", "https://www.eurosender.com")

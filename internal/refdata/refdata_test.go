@@ -25,7 +25,7 @@ func TestVatRateIDForPicksNewestWindowNotAfterDate(t *testing.T) {
 		{"2026-07-10", 3, true},
 		{"2026-01-01", 3, true}, // boundary: valid_from <= date
 		{"2025-12-31", 2, true},
-		{"2015-06-01", 1, true}, // 2020 window is in the future for this date; falls to 2010
+		{"2015-06-01", 1, true},  // 2020 window is in the future for this date; falls to 2010
 		{"2009-12-31", 0, false}, // before every window
 	}
 	for _, c := range cases {

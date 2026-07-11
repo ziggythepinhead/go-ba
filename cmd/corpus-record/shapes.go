@@ -10,17 +10,17 @@ import (
 // prodShape is one anonymized row extracted from prod unfinished_order_data (see
 // ai/go-ba/PHASE0_GATE_by_Claude.md for provenance and the extraction script).
 type prodShape struct {
-	T                       string             `json:"t"`
-	LoggedUser              bool               `json:"loggedUser"`
-	AccountType             *string            `json:"accountType"`
-	CurrencyCode            *string            `json:"currencyCode"`
-	SelectedServiceType     *int               `json:"selectedServiceType"`
-	SelectedServiceSubtype  *string            `json:"selectedServiceSubtype"`
-	Step                    *int               `json:"step"`
-	Pickup                  shapeAddress       `json:"pickup"`
-	Delivery                shapeAddress       `json:"delivery"`
-	PickupDate              *string            `json:"pickupDate"`
-	Parcels                 map[string][]shapeParcel `json:"parcels"`
+	T                      string                   `json:"t"`
+	LoggedUser             bool                     `json:"loggedUser"`
+	AccountType            *string                  `json:"accountType"`
+	CurrencyCode           *string                  `json:"currencyCode"`
+	SelectedServiceType    *int                     `json:"selectedServiceType"`
+	SelectedServiceSubtype *string                  `json:"selectedServiceSubtype"`
+	Step                   *int                     `json:"step"`
+	Pickup                 shapeAddress             `json:"pickup"`
+	Delivery               shapeAddress             `json:"delivery"`
+	PickupDate             *string                  `json:"pickupDate"`
+	Parcels                map[string][]shapeParcel `json:"parcels"`
 }
 
 type shapeAddress struct {

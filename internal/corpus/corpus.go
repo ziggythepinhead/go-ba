@@ -30,8 +30,8 @@ type Corpus struct {
 
 // Diff is one semantic divergence between oracle and candidate at a JSON path.
 type Diff struct {
-	Path     string
-	Oracle   string
+	Path      string
+	Oracle    string
 	Candidate string
 }
 

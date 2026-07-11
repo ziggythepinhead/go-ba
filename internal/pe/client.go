@@ -42,27 +42,17 @@ type Request struct {
 	ForcedCourierID             *int             `json:"forcedCourierId"`
 }
 
+// Parcels buckets parcel DTOs by type; element shapes differ per bucket (php *Dto classes), so
+// they are built as maps by the quote package. allParcels = concatenation in php getter order.
 type Parcels struct {
-	AllParcels  []Parcel `json:"allParcels"`
-	Envelopes   []Parcel `json:"envelopes"`
-	Packages    []Parcel `json:"packages"`
-	Pallets     []Parcel `json:"pallets"`
-	Vans        []Parcel `json:"vans"`
-	Trucks      []Parcel `json:"trucks"`
-	NonStandard []Parcel `json:"nonStandard"`
-	Containers  []Parcel `json:"containers"`
-}
-
-type Parcel struct {
-	Type             string   `json:"type"`
-	OptionalServices *string  `json:"optionalServices"`
-	Weight           float64  `json:"weight"`
-	Length           float64  `json:"length"`
-	Width            float64  `json:"width"`
-	Height           float64  `json:"height"`
-	GroupID          string   `json:"groupId"`
-	Stackable        bool     `json:"stackable"`
-	Quantity         int      `json:"quantity"`
+	AllParcels  []map[string]any `json:"allParcels"`
+	Envelopes   []map[string]any `json:"envelopes"`
+	Packages    []map[string]any `json:"packages"`
+	Pallets     []map[string]any `json:"pallets"`
+	Vans        []map[string]any `json:"vans"`
+	Trucks      []map[string]any `json:"trucks"`
+	NonStandard []map[string]any `json:"nonStandard"`
+	Containers  []map[string]any `json:"containers"`
 }
 
 type ClientInfo struct {
@@ -101,8 +91,15 @@ type Price struct {
 	PickupDate            string          `json:"pickupDate"`
 	ServiceTypeID         int             `json:"serviceTypeId"`
 	CourierPrice          CourierPrice    `json:"courierPrice"`
-	ExtraCharges          json.RawMessage `json:"extraCharges"`
+	ExtraCharges          []ExtraCharge   `json:"extraCharges"`
 	Parcels               json.RawMessage `json:"parcels"`
+}
+
+// ExtraCharge mirrors ExtraChargePriceDto {name, courierPrice, sellingPrice}.
+type ExtraCharge struct {
+	Name         string  `json:"name"`
+	CourierPrice float64 `json:"courierPrice"`
+	SellingPrice float64 `json:"sellingPrice"`
 }
 
 type CourierPrice struct {
