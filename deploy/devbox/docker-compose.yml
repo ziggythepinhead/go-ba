@@ -1,0 +1,38 @@
+# go-ba on the devbox network, next to backend (nginx-be/phpfpm-be), franken-pe and mysql8.
+#
+#   docker compose -f deploy/devbox/docker-compose.yml up -d --build
+#
+# Reachable as http://go-ba.docker.localhost via traefik (https with the devbox cert), or
+# http://localhost:8092 directly. Delegation targets the local php backend through its in-network
+# alias be.docker.localhost (nginx routes by that server_name, so no Host override is needed).
+services:
+  go-ba:
+    image: go-ba
+    pull_policy: never
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      GO_BA_LISTEN_ADDR: ":8080"
+      GO_BA_MYSQL_DSN: "root:root@tcp(mysql8:3306)/dev1"
+      GO_BA_PE_URL: "http://franken-pe"
+      GO_BA_PE_SECRET: "jL4x4686v4Rdfvfh" # local MANAGER_SECRET_KEY (include/config.inc.php)
+      GO_BA_PHP_URL: "http://be.docker.localhost"
+      GO_BA_BLOCKED_ROUTES_WARM: "0" # flip to 1 to precompute all route pairs on boot/publish
+    ports:
+      - "127.0.0.1:8092:8080"
+    labels:
+      traefik.enable: true
+      traefik.http.routers.go-ba.rule: "Host(`go-ba.docker.localhost`)"
+      traefik.http.routers.go-ba.tls: true
+      traefik.http.services.go-ba.loadbalancer.server.port: 8080
+    networks:
+      devbox:
+        aliases:
+          - go-ba.docker.localhost
+          - go-ba.docker.test
+
+networks:
+  devbox:
+    external: true

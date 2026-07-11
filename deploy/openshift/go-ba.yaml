@@ -1,0 +1,94 @@
+# go-ba on stage — deploy into backend-stagea, next to the php backend it shadows/delegates to.
+# Modeled on go-pe's deployment (deploy/openshift/go-pe.yaml in ~/work/go-pe): prepare-on-boot,
+# /readyz-gated rollouts, /metrics. See deploy/openshift/DEPLOY.md for build + apply steps and
+# the values that must be verified per environment (marked VERIFY below).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: go-ba
+  labels:
+    app: go-ba
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: go-ba
+  template:
+    metadata:
+      labels:
+        app: go-ba
+    spec:
+      containers:
+        - name: go-ba
+          image: image-registry.openshift-image-registry.svc:5000/backend-stagea/go-ba:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: GO_BA_LISTEN_ADDR
+              value: ":8080"
+            # In-cluster go-pe (pricing-engine-stagepe3 service, port 80). If this backend
+            # environment's PRICE_ENGINE_HOST points elsewhere, match it.
+            - name: GO_BA_PE_URL
+              value: "http://go-pe.pricing-engine-stagepe3.svc"
+            # Delegation target: the php backend's own service in this namespace.
+            # VERIFY the service name with `oc get svc -n backend-stagea` (nginx service in front
+            # of phpfpm-be); go-ba must never point at the public edge once the edge routes
+            # /api/v2/quote to go-ba (loop guard would catch it, but don't rely on that).
+            - name: GO_BA_PHP_URL
+              value: "http://nginx-be" # VERIFY
+            - name: GO_BA_SNAPSHOT_POLL_INTERVAL
+              value: "60s"
+            # Precompute the blocked-routes matrix for every price_engine_route pair on boot and
+            # on each PE version change (~1,780 pairs × 3 user types × 11 probes; minutes against
+            # in-cluster go-pe, bounded concurrency 8).
+            - name: GO_BA_BLOCKED_ROUTES_WARM
+              value: "1"
+            # GO_BA_MYSQL_DSN: this environment's backend MySQL (same DB php reads — the snapshot
+            #   tables are plain reference reads; a read replica is fine).
+            # GO_BA_PE_SECRET: the Application-Secret go-pe/php-pe expects (stage
+            #   MANAGER_SECRET_KEY). Both provisioned via the go-ba-secrets Secret, never in git.
+            - name: GO_BA_MYSQL_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: go-ba-secrets
+                  key: GO_BA_MYSQL_DSN
+            - name: GO_BA_PE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: go-ba-secrets
+                  key: GO_BA_PE_SECRET
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-ba
+  labels:
+    app: go-ba
+spec:
+  selector:
+    app: go-ba
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
