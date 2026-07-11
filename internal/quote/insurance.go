@@ -19,6 +19,10 @@ type insurance struct {
 	netPrice   float64
 	grossPrice float64
 	perPackage bool
+	// converted trio (non-EUR requests; spec 05 §7.3)
+	convSymbol *string
+	convNet    float64
+	convGross  float64
 }
 
 func (i *insurance) json() map[string]any {
@@ -26,10 +30,7 @@ func (i *insurance) json() map[string]any {
 		"id":       i.extraID,
 		"coverage": i.coverage,
 		"text":     i.text,
-		"price": map[string]any{
-			"original":  map[string]any{"currencyCode": "EUR", "gross": round2(absF(i.grossPrice)), "net": round2(absF(i.netPrice))},
-			"converted": nil,
-		},
+		"price":    priceJSON("EUR", i.grossPrice, i.netPrice, i.convSymbol, convPtr(i.convSymbol, i.convGross), convPtr(i.convSymbol, i.convNet)),
 	}
 }
 
@@ -303,6 +304,25 @@ func (e *engine) insuranceMaps(d *quoteData, r *peResp) (basic map[string]*insur
 	for key, list := range additional {
 		if id := recommendedInsuranceID(list, basic[key], shipmentValue, maxParcelValue); id != nil {
 			recommended[key] = *id
+		}
+	}
+
+	// non-EUR: converted trio on every insurance (basic prices are 0 → converted 0, spec 05 §7.3)
+	if d.currencyID != 1 {
+		sym := currencyCodeByID[d.currencyID]
+		setConv := func(i *insurance) {
+			s := sym
+			i.convSymbol = &s
+			i.convNet = convertAmount(e.snap, i.netPrice, d.currencyID)
+			i.convGross = convertAmount(e.snap, i.grossPrice, d.currencyID)
+		}
+		for _, b := range basic {
+			setConv(b)
+		}
+		for _, list := range additional {
+			for _, ins := range list {
+				setConv(ins)
+			}
 		}
 	}
 	return

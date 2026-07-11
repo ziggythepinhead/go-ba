@@ -92,6 +92,16 @@ type peResp struct {
 	insuranceID      *int
 	insuranceNet     float64
 	alternatives     []altService
+
+	// converted mirrors (non-EUR requests; addConvertedValues)
+	hasConverted    bool
+	exchangeRate    float64
+	convertedSymbol string
+	convTotalNet    float64
+	convTotalGross  float64
+	convItemsNet    float64
+	convItemsGross  float64
+	convFlexNet     float64
 }
 
 func (r *peResp) getSubtype() string {
@@ -123,17 +133,26 @@ type altService struct {
 	edt            string
 	minPickupDate  time.Time // midnight server tz
 	usedPickupDate *time.Time
+	// converted trio (nil symbol = EUR request, converted block null)
+	convSymbol *string
+	convGross  float64
+	convNet    float64
 }
 
 func (a altService) key() string { return fmt.Sprintf("%02d-%s", a.serviceTypeID, a.subtype) }
 
 func altFromResp(r *peResp) altService {
-	return altService{
+	a := altService{
 		serviceTypeID: r.serviceTypeID, subtype: r.getSubtype(),
 		priceGross: r.itemsGross, priceNet: r.itemsNet,
 		courierID: r.courierID, edt: r.edt,
 		minPickupDate: r.minPickupCarbon(), usedPickupDate: r.usedPickupDate,
 	}
+	if r.hasConverted {
+		sym := r.convertedSymbol
+		a.convSymbol, a.convGross, a.convNet = &sym, r.convItemsGross, r.convItemsNet
+	}
+	return a
 }
 
 // engine bundles everything the pipeline needs.
@@ -470,6 +489,8 @@ func (e *engine) transform(ctx context.Context, d *quoteData, dto pe.Price, minP
 	total = round2(total)
 	r.totalNet = total
 	r.totalGross = applyVat(e.snap, total, d.vatRateID)
+
+	addConvertedValues(e.snap, r, d.currencyID) // §8.8, no-op for EUR
 	return r
 }
 
@@ -801,6 +822,13 @@ func (e *engine) buildPERequestForPEType(d *quoteData, selectedPE int, optionalP
 		case "full-truck-load", "less-than-truck-load":
 			m := map[string]any{"type": p.ptype, "ldm": p.cargoQuantity, "weight": p.weight, "groupId": p.groupID}
 			parcels.Trucks = append(parcels.Trucks, m)
+		case "container":
+			cpt := "container" // ContainerDto type = cargoPackagingType ?? parcel-type fallback
+			if p.cargoPackagingType != nil && *p.cargoPackagingType != "" {
+				cpt = *p.cargoPackagingType
+			}
+			m := map[string]any{"type": cpt, "groupId": p.groupID}
+			parcels.Containers = append(parcels.Containers, m)
 		}
 	}
 	parcels.AllParcels = concatParcels(parcels.Envelopes, parcels.Packages, parcels.Pallets, parcels.Vans, parcels.Trucks, parcels.NonStandard, parcels.Containers)
@@ -886,7 +914,8 @@ func (e *engine) buildPERequestForPEType(d *quoteData, selectedPE int, optionalP
 				CountryID: d.pickupCountryID, TimeZoneName: tzName, Country2IsoCode: pickupCode},
 			DeliveryAddress: pe.Address{Zip: d.deliveryZip, City: d.deliveryCity, RegionID: d.deliveryRegionID,
 				CountryID: d.deliveryCountryID, Country2IsoCode: deliveryCode},
-			IsEU: isEU,
+			IsEU:     isEU,
+			Distance: float64(d.routeDistanceKM),
 		},
 		CountriesOnHolidayForPickup: onHoliday,
 		HolidaysOnPickupCountry:     holidaysOnPickup,

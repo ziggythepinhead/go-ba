@@ -8,15 +8,19 @@ import (
 	"sort"
 	"time"
 
+	"github.com/eurosender/go-ba/internal/delegate"
 	"github.com/eurosender/go-ba/internal/lifecycle"
 )
 
 // NewMux builds the operational mux; quoteHandler (optional, Phase 2+) is mounted on
 // POST /api/v2/quote when non-nil.
-func NewMux(m *lifecycle.Manager, quoteHandler http.HandlerFunc) *http.ServeMux {
+func NewMux(m *lifecycle.Manager, quoteHandler, blockedRoutesHandler http.HandlerFunc) *http.ServeMux {
 	mux := http.NewServeMux()
 	if quoteHandler != nil {
 		mux.HandleFunc("POST /api/v2/quote", quoteHandler)
+	}
+	if blockedRoutesHandler != nil {
+		mux.HandleFunc("GET /api/v2/countries/blocked-routes", blockedRoutesHandler)
 	}
 
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, _ *http.Request) {
@@ -48,6 +52,7 @@ func NewMux(m *lifecycle.Manager, quoteHandler http.HandlerFunc) *http.ServeMux 
 		// request-path MySQL ops: zero by construction in Phase 1 (no request path exists yet);
 		// the counter is declared now so Phase 2 inherits the invariant and its measurement
 		fmt.Fprintf(w, "go_ba_request_path_mysql_ops_total 0\n")
+		delegate.Metrics(w)
 		if snap != nil {
 			fmt.Fprintf(w, "go_ba_snapshot_age_seconds %.0f\n", time.Since(snap.LoadedAt).Seconds())
 			fmt.Fprintf(w, "go_ba_snapshot_pe_version{version=%q} 1\n", snap.PEVersion)

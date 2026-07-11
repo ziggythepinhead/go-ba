@@ -104,6 +104,14 @@ type Country struct {
 	MainlandID sql.NullInt64
 }
 
+// SimplifiedRoute mirrors an enabled_simplified_routes row (admin config: which "simplified"
+// FE services are offered between location patterns like Anywhere/Europe/<country code>).
+type SimplifiedRoute struct {
+	PickupLocation   string
+	DeliveryLocation string
+	Service          string // simplified_frontend_service
+}
+
 // Snapshot is the immutable, fully-indexed reference model. Build once, swap atomically.
 type Snapshot struct {
 	LoadedAt time.Time
@@ -162,6 +170,10 @@ type Snapshot struct {
 	// PickupBlockedByCountryCourier mirrors courier_limited_service_country rows with
 	// service='Pickup Request' AND blocked_for_pickup=1, keyed (country_id, courier_id).
 	PickupBlockedByCountryCourier map[[2]int]bool
+
+	// SimplifiedRoutes mirrors enabled_simplified_routes (admin config for the simplified half of
+	// /countries/blocked-routes): pickup/delivery location patterns per simplified FE service.
+	SimplifiedRoutes []SimplifiedRoute
 
 	Rows map[string]int // table -> row count (for /metrics and reload-change logging)
 }
@@ -252,7 +264,29 @@ func Load(ctx context.Context, db *sql.DB) (*Snapshot, error) {
 	if err := s.loadPickupBlocked(ctx, db); err != nil {
 		return nil, fmt.Errorf("courier_limited_service_country: %w", err)
 	}
+	if err := s.loadSimplifiedRoutes(ctx, db); err != nil {
+		return nil, fmt.Errorf("enabled_simplified_routes: %w", err)
+	}
 	return s, nil
+}
+
+func (s *Snapshot) loadSimplifiedRoutes(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx,
+		`SELECT COALESCE(pickup_location,''), COALESCE(delivery_location,''), COALESCE(simplified_frontend_service,'')
+		 FROM enabled_simplified_routes`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var r SimplifiedRoute
+		if err := rows.Scan(&r.PickupLocation, &r.DeliveryLocation, &r.Service); err != nil {
+			return err
+		}
+		s.Rows["enabled_simplified_routes"]++
+		s.SimplifiedRoutes = append(s.SimplifiedRoutes, r)
+	}
+	return rows.Err()
 }
 
 func (s *Snapshot) loadPickupBlocked(ctx context.Context, db *sql.DB) error {

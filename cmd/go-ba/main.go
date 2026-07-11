@@ -19,8 +19,11 @@ import (
 	"syscall"
 	"time"
 
+	_ "time/tzdata"
+
 	_ "github.com/go-sql-driver/mysql"
 
+	"github.com/eurosender/go-ba/internal/delegate"
 	"github.com/eurosender/go-ba/internal/httpapi"
 	"github.com/eurosender/go-ba/internal/lifecycle"
 	"github.com/eurosender/go-ba/internal/pe"
@@ -51,18 +54,43 @@ func main() {
 	defer stop()
 	go manager.Run(ctx)
 
-	var quoteHandler http.HandlerFunc
+	var quoteHandler, blockedRoutesHandler http.HandlerFunc
 	if peURL := os.Getenv("GO_BA_PE_URL"); peURL != "" {
 		svc := &quote.Service{
 			Snapshot:        manager.Snapshot,
 			PE:              pe.NewClient(peURL, os.Getenv("GO_BA_PE_SECRET")),
 			VersionOverride: os.Getenv("GO_BA_PE_VERSION"),
+			Proxy:           delegate.NewProxyFromEnv(),
+		}
+		if svc.Proxy != nil {
+			log.Printf("delegation enabled against %s", os.Getenv("GO_BA_PHP_URL"))
 		}
 		quoteHandler = svc.Handle
 		log.Printf("quote path enabled against %s", peURL)
+
+		blockedRoutes := svc.NewBlockedRoutesFromService()
+		blockedRoutesHandler = blockedRoutes.Handler
+		if os.Getenv("GO_BA_BLOCKED_ROUTES_WARM") == "1" {
+			go func() {
+				// warm on boot and on every PE version change (the per-entry cache is
+				// version-keyed, so a publish naturally triggers recomputation)
+				var warmedVersion string
+				for {
+					if snap := manager.Snapshot(); snap != nil && snap.PEVersion != warmedVersion {
+						blockedRoutes.Warm(ctx, 8)
+						warmedVersion = snap.PEVersion
+					}
+					select {
+					case <-ctx.Done():
+						return
+					case <-time.After(pollInterval):
+					}
+				}
+			}()
+		}
 	}
 
-	server := &http.Server{Addr: addr, Handler: httpapi.NewMux(manager, quoteHandler)}
+	server := &http.Server{Addr: addr, Handler: httpapi.NewMux(manager, quoteHandler, blockedRoutesHandler)}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

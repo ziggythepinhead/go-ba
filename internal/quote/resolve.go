@@ -133,6 +133,7 @@ type quoteData struct {
 	optionalServiceTypes           []int
 	courierIDs                     []int
 	excludedCouriersPerService     map[int][]int // guest: all empty
+	routeDistanceKM                int           // RouteDto distance (0 on the quote path; blocked-routes probes set it)
 
 	// derived flags
 	isGlobalRouteFlag bool

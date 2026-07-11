@@ -270,7 +270,15 @@ func (e *engine) buildAddOnsMap(d *quoteData, r *peResp) map[int]map[int][]addOn
 	// detected type never renders; alternatives keyed under their own type, main's courier.
 	if flexSupported[d.serviceType] {
 		net := round2(math.Max(0.25*r.itemsNet, 8.54))
-		p := priceJSON("EUR", applyVat(e.snap, net, d.vatRateID), net, nil, nil, nil)
+		gross := applyVat(e.snap, net, d.vatRateID)
+		var flexConvSym *string
+		var flexConvGross, flexConvNet *float64
+		if d.currencyID != 1 {
+			sym := currencyCodeByID[d.currencyID]
+			cg, cn := convertAmount(e.snap, gross, d.currencyID), convertAmount(e.snap, net, d.currencyID)
+			flexConvSym, flexConvGross, flexConvNet = &sym, &cg, &cn
+		}
+		p := priceJSON("EUR", gross, net, flexConvSym, flexConvGross, flexConvNet)
 		appendAddon(*r.courierID, d.serviceType, addOn{code: "flexibleChanges", price: p})
 		for _, a := range r.alternatives {
 			appendAddon(*r.courierID, a.serviceTypeID, addOn{code: "flexibleChanges", price: p})
@@ -283,10 +291,10 @@ func (e *engine) buildAddOnsMap(d *quoteData, r *peResp) map[int]map[int][]addOn
 			continue
 		}
 		gross := applyVat(e.snap, ex.net, d.vatRateID)
-		eur := "EUR"
-		g, n := gross, ex.net
+		sym := currencyCodeByID[d.currencyID]
+		g, n := convertAmount(e.snap, gross, d.currencyID), convertAmount(e.snap, ex.net, d.currencyID)
 		appendAddon(*r.courierID, r.serviceTypeID, addOn{code: code,
-			price: priceJSON("EUR", gross, ex.net, &eur, &g, &n)})
+			price: priceJSON("EUR", gross, ex.net, &sym, &g, &n)})
 	}
 	return out
 }
@@ -369,13 +377,13 @@ func (e *engine) buildEnvelope(d *quoteData, r *peResp, lang string, selectedSer
 		var usedPickupDate any
 		var edt string
 		if a, ok := altByKey[key]; ok {
-			price = priceJSON("EUR", a.priceGross, a.priceNet, nil, nil, nil)
+			price = priceJSON("EUR", a.priceGross, a.priceNet, a.convSymbol, convPtr(a.convSymbol, a.convGross), convPtr(a.convSymbol, a.convNet))
 			edt = a.edt
 			if a.usedPickupDate != nil {
 				usedPickupDate = a.usedPickupDate.Format(rfc3339)
 			}
 		} else if r.success && r.key() == key {
-			price = priceJSON("EUR", r.itemsGross, r.itemsNet, nil, nil, nil)
+			price = mainPriceJSON(r, r.itemsGross, r.itemsNet, r.convItemsGross, r.convItemsNet)
 			if det.edt != nil {
 				edt = *det.edt
 			} else {
@@ -428,7 +436,14 @@ func (e *engine) buildEnvelope(d *quoteData, r *peResp, lang string, selectedSer
 					netDiff := round2(round2(base.priceNet) - round2(upgraded.priceNet))
 					if netDiff > 0 {
 						grossDiff := round2(round2(base.priceGross) - round2(upgraded.priceGross))
-						discount = priceJSON("EUR", grossDiff, netDiff, nil, nil, nil)
+						var cSym *string
+						var cGross, cNet *float64
+						if base.convSymbol != nil {
+							cn := round2(round2(base.convNet) - round2(upgraded.convNet))
+							cg := round2(round2(base.convGross) - round2(upgraded.convGross))
+							cSym, cGross, cNet = base.convSymbol, &cg, &cn
+						}
+						discount = priceJSON("EUR", grossDiff, netDiff, cSym, cGross, cNet)
 					}
 				}
 			}
@@ -475,7 +490,10 @@ func (e *engine) buildEnvelope(d *quoteData, r *peResp, lang string, selectedSer
 	// paymentMethods (guest, success only)
 	paymentMethods := []any{}
 	if r.success {
-		currencyID := 1 // response currency = EUR (converted values not implemented for guests yet)
+		currencyID := 1 // response currency: converted symbol when non-EUR (PaymentMethodsTrait)
+		if r.hasConverted {
+			currencyID = d.currencyID
+		}
 		for _, code := range []string{"paypal", "credit_card", "apple_pay", "google_pay", "bank"} {
 			paymentMethods = append(paymentMethods, map[string]any{
 				"code":            code,
@@ -508,7 +526,7 @@ func (e *engine) buildEnvelope(d *quoteData, r *peResp, lang string, selectedSer
 				"pricePerKm":                    nil,
 				"truckOptions":                  nil,
 				"vatRate":                       e.snap.VatRateByID[d.vatRateID],
-				"exchangeRate":                  nil,
+				"exchangeRate":                  exchangeRateJSON(r),
 				"generalTermsAndConditionsLink": generalTC,
 				"isGlobalRoute":                 d.isGlobalRouteFlag,
 			},
@@ -590,7 +608,7 @@ func (e *engine) buildOrder(d *quoteData, r *peResp, basic *insurance, additiona
 		}
 	}
 	return map[string]any{
-		"totalPrice":            priceJSON("EUR", r.totalGross, r.totalNet, nil, nil, nil),
+		"totalPrice":            mainPriceJSON(r, r.totalGross, r.totalNet, r.convTotalGross, r.convTotalNet),
 		"basicInsuranceId":      basicID,
 		"additionalInsuranceId": additionalID,
 		"coupon":                nil,
@@ -606,4 +624,29 @@ func (e *engine) buildOrder(d *quoteData, r *peResp, basic *insurance, additiona
 		"courierTag":            nil,
 		"calculatedDistance":    nil,
 	}
+}
+
+// convPtr returns &v only when the converted symbol is set (EUR requests keep converted null).
+func convPtr(sym *string, v float64) *float64 {
+	if sym == nil {
+		return nil
+	}
+	return &v
+}
+
+// mainPriceJSON renders a main-response Price with its converted mirror when present.
+func mainPriceJSON(r *peResp, gross, net, convGross, convNet float64) map[string]any {
+	if !r.hasConverted {
+		return priceJSON("EUR", gross, net, nil, nil, nil)
+	}
+	sym := r.convertedSymbol
+	return priceJSON("EUR", gross, net, &sym, &convGross, &convNet)
+}
+
+// exchangeRateJSON: options.exchangeRate = the modified rate for non-EUR, null for EUR.
+func exchangeRateJSON(r *peResp) any {
+	if !r.hasConverted {
+		return nil
+	}
+	return r.exchangeRate
 }

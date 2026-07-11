@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/eurosender/go-ba/internal/corpus"
@@ -98,9 +99,14 @@ func main() {
 	shapes := flag.String("shapes", "", "prod shapes JSONL; when set, cases come from real traffic shapes instead of the synthetic matrix")
 	maxCases := flag.Int("max-cases", 320, "case cap in -shapes mode")
 	hostHeader := flag.String("host-header", "", "override the HTTP Host header (local devbox oracle behind a port-forward, e.g. be.docker.localhost)")
+	currencies := flag.String("currencies", "", "comma-separated currency codes rotated per case (overrides the shapes' currencyCode; e.g. PLN,CZK,GBP,SEK)")
 	flag.Parse()
 	if *oracle == "" {
 		log.Fatal("-oracle is required")
+	}
+	var currencyRotation []string
+	if *currencies != "" {
+		currencyRotation = strings.Split(*currencies, ",")
 	}
 
 	client := &http.Client{Timeout: *timeout}
@@ -114,7 +120,10 @@ func main() {
 			log.Fatal(err)
 		}
 		log.Printf("built %d cases from prod shapes", len(shapeCases))
-		for _, sc := range shapeCases {
+		for i, sc := range shapeCases {
+			if len(currencyRotation) > 0 {
+				sc.payload["currencyCode"] = strings.TrimSpace(currencyRotation[i%len(currencyRotation)])
+			}
 			body, err := json.Marshal(sc.payload)
 			if err != nil {
 				log.Fatalf("%s: marshal: %v", sc.name, err)
@@ -124,6 +133,11 @@ func main() {
 			if err != nil {
 				failed++
 				log.Printf("FAIL %s: %v", sc.name, err)
+				continue
+			}
+			if !json.Valid(resp) {
+				failed++
+				log.Printf("FAIL %s: oracle returned non-JSON (status %d, %d bytes)", sc.name, status, len(resp))
 				continue
 			}
 			c.Cases = append(c.Cases, corpus.Case{Name: sc.name, Request: body, Status: status, Response: resp})
