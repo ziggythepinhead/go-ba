@@ -1,4 +1,4 @@
-// Package lifecycle owns go-ba's snapshot lifecycle — go-pe's runPrepareLifecycle pattern:
+// Package lifecycle owns go-be's snapshot lifecycle — go-pe's runPrepareLifecycle pattern:
 // prepare on boot with retry, publish behind an atomic pointer, poll for changes, expose
 // readiness only after the first successful prepare.
 package lifecycle
@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/eurosender/go-ba/internal/refdata"
+	"github.com/eurosender/go-be/internal/refdata"
 )
 
 type Manager struct {

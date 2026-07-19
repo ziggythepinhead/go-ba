@@ -1,5 +1,5 @@
-// Package pe is go-ba's client for the pricing engine's bulk endpoint (/api/quote/services).
-// Request/response shapes mirror the canonical artifacts in ai/go-ba/ (captured from the real php
+// Package pe is go-be's client for the pricing engine's bulk endpoint (/api/quote/services).
+// Request/response shapes mirror the canonical artifacts in ai/go-be/ (captured from the real php
 // path 2026-07-10) — change those files and this package together or not at all.
 package pe
 

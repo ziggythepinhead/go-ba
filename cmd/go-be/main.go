@@ -1,12 +1,12 @@
-// go-ba service entrypoint — Phase 1: reference-data snapshot lifecycle + operational endpoints.
+// go-be service entrypoint — Phase 1: reference-data snapshot lifecycle + operational endpoints.
 // The quote path itself lands in Phase 2; this process already proves the go-pe-style runtime:
 // prepare-on-boot, atomic snapshot swap, polling, readiness gating, metrics.
 //
 // Config (env):
 //
-//	GO_BA_MYSQL_DSN              user:pass@tcp(host:3306)/dev1 (required)
-//	GO_BA_LISTEN_ADDR            default :8091
-//	GO_BA_SNAPSHOT_POLL_INTERVAL default 60s
+//	GO_BE_MYSQL_DSN              user:pass@tcp(host:3306)/dev1 (required)
+//	GO_BE_LISTEN_ADDR            default :8091
+//	GO_BE_SNAPSHOT_POLL_INTERVAL default 60s
 package main
 
 import (
@@ -23,22 +23,22 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 
-	"github.com/eurosender/go-ba/internal/delegate"
-	"github.com/eurosender/go-ba/internal/httpapi"
-	"github.com/eurosender/go-ba/internal/lifecycle"
-	"github.com/eurosender/go-ba/internal/pe"
-	"github.com/eurosender/go-ba/internal/quote"
+	"github.com/eurosender/go-be/internal/delegate"
+	"github.com/eurosender/go-be/internal/httpapi"
+	"github.com/eurosender/go-be/internal/lifecycle"
+	"github.com/eurosender/go-be/internal/pe"
+	"github.com/eurosender/go-be/internal/quote"
 )
 
 func main() {
-	dsn := os.Getenv("GO_BA_MYSQL_DSN")
+	dsn := os.Getenv("GO_BE_MYSQL_DSN")
 	if dsn == "" {
-		log.Fatal("GO_BA_MYSQL_DSN is required")
+		log.Fatal("GO_BE_MYSQL_DSN is required")
 	}
-	addr := envOr("GO_BA_LISTEN_ADDR", ":8091")
-	pollInterval, err := time.ParseDuration(envOr("GO_BA_SNAPSHOT_POLL_INTERVAL", "60s"))
+	addr := envOr("GO_BE_LISTEN_ADDR", ":8091")
+	pollInterval, err := time.ParseDuration(envOr("GO_BE_SNAPSHOT_POLL_INTERVAL", "60s"))
 	if err != nil {
-		log.Fatalf("GO_BA_SNAPSHOT_POLL_INTERVAL: %v", err)
+		log.Fatalf("GO_BE_SNAPSHOT_POLL_INTERVAL: %v", err)
 	}
 
 	db, err := sql.Open("mysql", dsn)
@@ -55,22 +55,22 @@ func main() {
 	go manager.Run(ctx)
 
 	var quoteHandler, blockedRoutesHandler http.HandlerFunc
-	if peURL := os.Getenv("GO_BA_PE_URL"); peURL != "" {
+	if peURL := os.Getenv("GO_BE_PE_URL"); peURL != "" {
 		svc := &quote.Service{
 			Snapshot:        manager.Snapshot,
-			PE:              pe.NewClient(peURL, os.Getenv("GO_BA_PE_SECRET")),
-			VersionOverride: os.Getenv("GO_BA_PE_VERSION"),
+			PE:              pe.NewClient(peURL, os.Getenv("GO_BE_PE_SECRET")),
+			VersionOverride: os.Getenv("GO_BE_PE_VERSION"),
 			Proxy:           delegate.NewProxyFromEnv(),
 		}
 		if svc.Proxy != nil {
-			log.Printf("delegation enabled against %s", os.Getenv("GO_BA_PHP_URL"))
+			log.Printf("delegation enabled against %s", os.Getenv("GO_BE_PHP_URL"))
 		}
 		quoteHandler = svc.Handle
 		log.Printf("quote path enabled against %s", peURL)
 
 		blockedRoutes := svc.NewBlockedRoutesFromService()
 		blockedRoutesHandler = blockedRoutes.Handler
-		if os.Getenv("GO_BA_BLOCKED_ROUTES_WARM") == "1" {
+		if os.Getenv("GO_BE_BLOCKED_ROUTES_WARM") == "1" {
 			go func() {
 				// warm on boot and on every PE version change (the per-entry cache is
 				// version-keyed, so a publish naturally triggers recomputation)
@@ -98,7 +98,7 @@ func main() {
 		_ = server.Shutdown(shutdownCtx)
 	}()
 
-	log.Printf("go-ba listening on %s (poll interval %s)", addr, pollInterval)
+	log.Printf("go-be listening on %s (poll interval %s)", addr, pollInterval)
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}

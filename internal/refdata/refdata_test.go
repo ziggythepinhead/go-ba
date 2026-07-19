@@ -41,11 +41,11 @@ func TestVatRateIDForPicksNewestWindowNotAfterDate(t *testing.T) {
 
 // TestSnapshotLookupsMatchSQL is the Phase-1 equivalence gate: for every (vat_type, country)
 // pair present in the data, the snapshot answer must equal the php DAO's SQL executed live.
-// Gated on GO_BA_TEST_MYSQL_DSN (go-pe's env-gated integration-test pattern).
+// Gated on GO_BE_TEST_MYSQL_DSN (go-pe's env-gated integration-test pattern).
 func TestSnapshotLookupsMatchSQL(t *testing.T) {
-	dsn := os.Getenv("GO_BA_TEST_MYSQL_DSN")
+	dsn := os.Getenv("GO_BE_TEST_MYSQL_DSN")
 	if dsn == "" {
-		t.Skip("GO_BA_TEST_MYSQL_DSN not set")
+		t.Skip("GO_BE_TEST_MYSQL_DSN not set")
 	}
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {

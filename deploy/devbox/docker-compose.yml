@@ -1,37 +1,62 @@
-# go-ba on the devbox network, next to backend (nginx-be/phpfpm-be), franken-pe and mysql8.
+# go-be on the devbox network, next to backend (nginx-be/phpfpm-be), go-pe and mysql8.
 #
 #   docker compose -f deploy/devbox/docker-compose.yml up -d --build
 #
-# Reachable as http://go-ba.docker.localhost via traefik (https with the devbox cert), or
-# http://localhost:8092 directly. Delegation targets the local php backend through its in-network
-# alias be.docker.localhost (nginx routes by that server_name, so no Host override is needed).
+# Reachable as http://go-be.docker.localhost via traefik (https with the devbox cert), or
+# http://localhost:8092 directly. Traefik also intercepts Host(be.docker.localhost) +
+# Path(/api/v2/quote) straight to go-be (higher priority than backend's own "be" router), so
+# next's frontend (settings.API_URL = https://be.docker.localhost/api/) reaches go-be for quotes
+# with no frontend change: next -> go-be -> go-pe, delegating to php only when go-be can't serve
+# a request natively. Delegation itself goes straight to the nginx-be container (bypassing
+# traefik) to avoid looping back into the interception router above.
+name: go-be
 services:
-  go-ba:
-    image: go-ba
+  go-be:
+    image: go-be
     pull_policy: never
     build:
       context: ../..
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      GO_BA_LISTEN_ADDR: ":8080"
-      GO_BA_MYSQL_DSN: "root:root@tcp(mysql8:3306)/dev1"
-      GO_BA_PE_URL: "http://franken-pe"
-      GO_BA_PE_SECRET: "jL4x4686v4Rdfvfh" # local MANAGER_SECRET_KEY (include/config.inc.php)
-      GO_BA_PHP_URL: "http://be.docker.localhost"
-      GO_BA_BLOCKED_ROUTES_WARM: "0" # flip to 1 to precompute all route pairs on boot/publish
+      GO_BE_LISTEN_ADDR: ":8080"
+      GO_BE_MYSQL_DSN: "root:root@tcp(mysql8:3306)/dev1"
+      GO_BE_PE_URL: "http://pricing-engine-go:8080" # pricing-engine-go (containerized, native engine, reads local Mongo)
+      GO_BE_PE_SECRET: "jL4x4686v4Rdfvfh" # local MANAGER_SECRET_KEY (include/config.inc.php)
+      # Direct container hostname, bypassing traefik entirely: traefik now routes
+      # be.docker.localhost's /api/v2/quote to go-be itself (see the go-be-quote router below),
+      # so delegating through that same host+path would loop back into go-be.
+      GO_BE_PHP_URL: "http://nginx-be"
+      GO_BE_PHP_HOST_HEADER: "be.docker.localhost"
+      GO_BE_BLOCKED_ROUTES_WARM: "0" # flip to 1 to precompute all route pairs on boot/publish
     ports:
       - "127.0.0.1:8092:8080"
     labels:
       traefik.enable: true
-      traefik.http.routers.go-ba.rule: "Host(`go-ba.docker.localhost`)"
-      traefik.http.routers.go-ba.tls: true
-      traefik.http.services.go-ba.loadbalancer.server.port: 8080
+      traefik.http.routers.go-be.rule: "Host(`go-be.docker.localhost`)"
+      traefik.http.routers.go-be.tls: true
+      traefik.http.services.go-be.loadbalancer.server.port: 8080
+      # Intercepts next's quote/blocked-routes calls on backend's own hostname; both must
+      # outrank the plain Host(`be.docker.localhost`) router in backend/docker-compose.yml.
+      traefik.http.routers.go-be-quote.rule: "Host(`be.docker.localhost`) && Path(`/api/v2/quote`)"
+      traefik.http.routers.go-be-quote.tls: true
+      traefik.http.routers.go-be-quote.service: go-be
+      traefik.http.routers.go-be-quote.priority: 100
+      traefik.http.routers.go-be-blocked-routes.rule: "Host(`be.docker.localhost`) && Path(`/api/v2/countries/blocked-routes`)"
+      traefik.http.routers.go-be-blocked-routes.tls: true
+      traefik.http.routers.go-be-blocked-routes.service: go-be
+      traefik.http.routers.go-be-blocked-routes.priority: 100
+      # Same CORS middleware as backend's "be" router (defined there) — without it, traefik
+      # forwards the browser's OPTIONS preflight straight to go-be (only POST/GET are
+      # registered per endpoint), which 405s with no CORS headers and the browser blocks the
+      # real request.
+      traefik.http.routers.go-be-quote.middlewares: be-cors
+      traefik.http.routers.go-be-blocked-routes.middlewares: be-cors
     networks:
       devbox:
         aliases:
-          - go-ba.docker.localhost
-          - go-ba.docker.test
+          - go-be.docker.localhost
+          - go-be.docker.test
 
 networks:
   devbox:

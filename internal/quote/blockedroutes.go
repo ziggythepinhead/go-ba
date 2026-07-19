@@ -1,4 +1,4 @@
-// GET /api/v2/countries/blocked-routes — native go-ba implementation of
+// GET /api/v2/countries/blocked-routes — native go-be implementation of
 // GetBlockedRoutesServicesAction. Two halves merged into one flat string list:
 //
 //	automated  — "no prices, no route": probe the PE with 11 default-parcel payloads per
@@ -6,7 +6,7 @@
 //	             FE options that came back unpriced. Pure function of the PE version → cached per
 //	             (pair, userType, version); optional warmer precomputes all price_engine_route
 //	             pairs. php equivalent: AutomatedBlockedRoutesServices + blocked_services_on_route
-//	             store (go-ba replaces the store+cron with its version-keyed cache).
+//	             store (go-be replaces the store+cron with its version-keyed cache).
 //	simplified — admin config from enabled_simplified_routes matched against country groups
 //	             (SimplifiedBlockedRoutesServices). Pure snapshot lookup.
 //
@@ -23,9 +23,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/eurosender/go-ba/internal/delegate"
-	"github.com/eurosender/go-ba/internal/pe"
-	"github.com/eurosender/go-ba/internal/refdata"
+	"github.com/eurosender/go-be/internal/delegate"
+	"github.com/eurosender/go-be/internal/pe"
+	"github.com/eurosender/go-be/internal/refdata"
 )
 
 // FE option strings (BlockedRoutesServiceOptions).
@@ -341,7 +341,7 @@ func realCountryCode(c *refdata.Country) string {
 }
 
 // Warm precomputes the automated half for every price_engine_route pair × userType. Optional
-// (GO_BA_BLOCKED_ROUTES_WARM=1); runs off the snapshot poller's version so a PE publish triggers
+// (GO_BE_BLOCKED_ROUTES_WARM=1); runs off the snapshot poller's version so a PE publish triggers
 // a fresh sweep. Concurrency-bounded; the cache swap is per-entry (stale entries keep serving).
 func (b *BlockedRoutes) Warm(ctx context.Context, concurrency int) {
 	e := b.engine()

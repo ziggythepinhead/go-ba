@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eurosender/go-ba/internal/corpus"
+	"github.com/eurosender/go-be/internal/corpus"
 )
 
 type route struct {

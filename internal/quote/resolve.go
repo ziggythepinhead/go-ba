@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eurosender/go-ba/internal/refdata"
+	"github.com/eurosender/go-be/internal/refdata"
 )
 
 // Request is the full /api/v2/quote body.

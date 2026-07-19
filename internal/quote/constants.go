@@ -1,7 +1,7 @@
 // Constants ported verbatim from the php backend (modules/dlabs/options/*, provider constants).
 // Sources: CourierOptions.php, FedexCourierOptions.php, UpsCourierOptions.php,
 // DhlExpressCourierOptions.php, KuehneNagelCourierOptions.php, ServiceTypeOptions.php,
-// ServiceTypeProvider.php, Aggregate*PriceProvider.php. See ai/go-ba/specs/ for provenance.
+// ServiceTypeProvider.php, Aggregate*PriceProvider.php. See ai/go-be/specs/ for provenance.
 package quote
 
 // ServiceTypeOptions

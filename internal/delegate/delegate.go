@@ -1,7 +1,7 @@
-// Package delegate proxies whole quote requests to the php backend's /api/v2/quote — go-ba's
+// Package delegate proxies whole quote requests to the php backend's /api/v2/quote — go-be's
 // fallback for request classes it does not handle natively (auth, coupons, van/FTL, declared
 // values, FedEx-addressed, unknown sources) and for any internal failure. The php answer is
-// returned verbatim, so go-ba never serves a wrong or improvised response.
+// returned verbatim, so go-be never serves a wrong or improvised response.
 package delegate
 
 import (
@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-// Delegation reasons (metric labels; each disable-able via GO_BA_DELEGATE_DISABLE csv).
+// Delegation reasons (metric labels; each disable-able via GO_BE_DELEGATE_DISABLE csv).
 const (
 	ReasonAuth           = "auth"
 	ReasonCoupon         = "coupon"
@@ -29,7 +29,7 @@ const (
 )
 
 // LoopGuardHeader marks proxied requests; receiving one back means a routing loop.
-const LoopGuardHeader = "X-GoBa-Delegated"
+const LoopGuardHeader = "X-GoBe-Delegated"
 
 // Counters for /metrics (label -> count).
 var (
@@ -58,10 +58,10 @@ func CountLoop() { loopCount.Add(1) }
 // Metrics renders the delegate counters in the hand-rolled /metrics text format.
 func Metrics(w io.Writer) {
 	for r, c := range counts {
-		io.WriteString(w, "go_ba_delegated_total{reason=\""+r+"\"} "+itoa(c.Load())+"\n")
+		io.WriteString(w, "go_be_delegated_total{reason=\""+r+"\"} "+itoa(c.Load())+"\n")
 	}
-	io.WriteString(w, "go_ba_delegate_errors_total "+itoa(errCount.Load())+"\n")
-	io.WriteString(w, "go_ba_delegate_loop_total "+itoa(loopCount.Load())+"\n")
+	io.WriteString(w, "go_be_delegate_errors_total "+itoa(errCount.Load())+"\n")
+	io.WriteString(w, "go_be_delegate_loop_total "+itoa(loopCount.Load())+"\n")
 }
 
 func itoa(v int64) string {
@@ -94,29 +94,29 @@ type Proxy struct {
 	disabled   map[string]bool
 }
 
-// NewProxyFromEnv builds the proxy from GO_BA_PHP_URL / GO_BA_PHP_HOST_HEADER /
-// GO_BA_PHP_TIMEOUT / GO_BA_DELEGATE_DISABLE. Returns nil when GO_BA_PHP_URL is unset
+// NewProxyFromEnv builds the proxy from GO_BE_PHP_URL / GO_BE_PHP_HOST_HEADER /
+// GO_BE_PHP_TIMEOUT / GO_BE_DELEGATE_DISABLE. Returns nil when GO_BE_PHP_URL is unset
 // (delegation off; predicate reasons are still counted by the caller).
 func NewProxyFromEnv() *Proxy {
-	base := os.Getenv("GO_BA_PHP_URL")
+	base := os.Getenv("GO_BE_PHP_URL")
 	if base == "" {
 		return nil
 	}
 	timeout := 60 * time.Second
-	if t := os.Getenv("GO_BA_PHP_TIMEOUT"); t != "" {
+	if t := os.Getenv("GO_BE_PHP_TIMEOUT"); t != "" {
 		if d, err := time.ParseDuration(t); err == nil {
 			timeout = d
 		}
 	}
 	disabled := map[string]bool{}
-	for _, r := range strings.Split(os.Getenv("GO_BA_DELEGATE_DISABLE"), ",") {
+	for _, r := range strings.Split(os.Getenv("GO_BE_DELEGATE_DISABLE"), ",") {
 		if r = strings.TrimSpace(r); r != "" {
 			disabled[r] = true
 		}
 	}
 	return &Proxy{
 		baseURL:    strings.TrimRight(base, "/"),
-		hostHeader: os.Getenv("GO_BA_PHP_HOST_HEADER"),
+		hostHeader: os.Getenv("GO_BE_PHP_HOST_HEADER"),
 		client:     &http.Client{Timeout: timeout},
 		disabled:   disabled,
 	}

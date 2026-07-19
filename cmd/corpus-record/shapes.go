@@ -8,7 +8,7 @@ import (
 )
 
 // prodShape is one anonymized row extracted from prod unfinished_order_data (see
-// ai/go-ba/PHASE0_GATE_by_Claude.md for provenance and the extraction script).
+// ai/go-be/PHASE0_GATE_by_Claude.md for provenance and the extraction script).
 type prodShape struct {
 	T                      string                   `json:"t"`
 	LoggedUser             bool                     `json:"loggedUser"`

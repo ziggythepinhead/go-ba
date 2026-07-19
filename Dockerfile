@@ -4,14 +4,14 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-# tzdata is embedded via `import _ "time/tzdata"` in cmd/go-ba (Europe/Ljubljana date math),
+# tzdata is embedded via `import _ "time/tzdata"` in cmd/go-be (Europe/Ljubljana date math),
 # so the runtime image needs no zoneinfo package.
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/go-ba ./cmd/go-ba
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/go-be ./cmd/go-be
 
 FROM docker.io/library/alpine:3.22
-RUN addgroup -S goba && adduser -S goba -G goba
-USER goba
+RUN addgroup -S gobe && adduser -S gobe -G gobe
+USER gobe
 WORKDIR /app
-COPY --from=build /out/go-ba /app/go-ba
+COPY --from=build /out/go-be /app/go-be
 EXPOSE 8080
-ENTRYPOINT ["/app/go-ba"]
+ENTRYPOINT ["/app/go-be"]

@@ -1,5 +1,5 @@
 // Package refdata loads the reference tables the quote path reads into an immutable in-memory
-// Snapshot — go-ba's counterpart of go-pe's version snapshot. All lookups after prepare are pure
+// Snapshot — go-be's counterpart of go-pe's version snapshot. All lookups after prepare are pure
 // map/slice reads; the request path performs zero MySQL operations by construction.
 package refdata
 

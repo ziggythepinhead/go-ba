@@ -1,5 +1,5 @@
 // corpus-gate replays a recorded corpus against a candidate /api/v2/quote implementation and
-// semantically compares every response against the recorded oracle response. This is go-ba's
+// semantically compares every response against the recorded oracle response. This is go-be's
 // Phase-0 gate: 0 divergences or it doesn't ship. Also usable as a stability probe by pointing
 // -target back at the oracle itself.
 //
@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eurosender/go-ba/internal/corpus"
+	"github.com/eurosender/go-be/internal/corpus"
 )
 
 func main() {

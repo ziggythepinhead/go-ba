@@ -4,7 +4,7 @@
 // converted blocks and options.exchangeRate. Specs: 03 §8.8, agent findings 2026-07-11.
 package quote
 
-import "github.com/eurosender/go-ba/internal/refdata"
+import "github.com/eurosender/go-be/internal/refdata"
 
 var currencyCodeByID = map[int]string{1: "EUR", 2: "HRK", 3: "CZK", 4: "DKK", 5: "GBP", 6: "PLN", 7: "SEK", 8: "RON", 12: "USD"}
 

@@ -1,4 +1,4 @@
-// Package quote is go-ba's /api/v2/quote orchestrator: decode → resolve (spec 02) → PE pipeline
+// Package quote is go-be's /api/v2/quote orchestrator: decode → resolve (spec 02) → PE pipeline
 // (spec 03) → envelope (specs 04/07/08). The php backend is the semantic oracle; the corpus gate
 // is the spec. Guest scope: no auth, no coupons, no courier tags.
 package quote
@@ -10,15 +10,15 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/eurosender/go-ba/internal/delegate"
-	"github.com/eurosender/go-ba/internal/pe"
-	"github.com/eurosender/go-ba/internal/refdata"
+	"github.com/eurosender/go-be/internal/delegate"
+	"github.com/eurosender/go-be/internal/pe"
+	"github.com/eurosender/go-be/internal/refdata"
 )
 
 type Service struct {
 	Snapshot        func() *refdata.Snapshot
 	PE              *pe.Client
-	VersionOverride string // dev aid: pin the PE version instead of the snapshot's (GO_BA_PE_VERSION)
+	VersionOverride string // dev aid: pin the PE version instead of the snapshot's (GO_BE_PE_VERSION)
 	Now             func() time.Time
 	// Proxy delegates non-native request classes (and native failures) to the php backend.
 	// nil = delegation off (dev/corpus mode): every request is served natively.
@@ -143,7 +143,7 @@ func writeProblem(w http.ResponseWriter, status int, body map[string]any) {
 
 // quote runs the full php QuoteAction flow. Returns (body, http status, delegation reason).
 // A non-empty delegation reason means the native answer must not be served when a proxy exists
-// (php runs live checks go-ba does not replicate for that request class).
+// (php runs live checks go-be does not replicate for that request class).
 func (s *Service) quote(ctx context.Context, e *engine, req *Request, lang string) (map[string]any, int, string) {
 	d, err := resolve(req, e.snap, e.now)
 	if err != nil {

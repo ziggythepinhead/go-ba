@@ -1,5 +1,5 @@
 // Package corpus holds the recorded quote corpus and the semantic comparator used by both
-// cmd/corpus-record and cmd/corpus-gate. Phase 0 of go-ba: the corpus IS the spec — nothing ships
+// cmd/corpus-record and cmd/corpus-gate. Phase 0 of go-be: the corpus IS the spec — nothing ships
 // that doesn't reproduce the php backend's /api/v2/quote responses over this corpus.
 package corpus
 

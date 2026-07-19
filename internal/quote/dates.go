@@ -8,7 +8,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/eurosender/go-ba/internal/refdata"
+	"github.com/eurosender/go-be/internal/refdata"
 )
 
 var backendZone = mustZone("Europe/Ljubljana")

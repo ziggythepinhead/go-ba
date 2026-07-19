@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/eurosender/go-ba/internal/pe"
-	"github.com/eurosender/go-ba/internal/refdata"
+	"github.com/eurosender/go-be/internal/pe"
+	"github.com/eurosender/go-be/internal/refdata"
 )
 
 // round2 mirrors php 8.4 round($x, 2): decimal-correct rounding of the value's shortest decimal

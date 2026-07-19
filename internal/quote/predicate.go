@@ -1,11 +1,11 @@
-// Delegation predicate: which requests go-ba does NOT serve natively (yet) and forwards to the
+// Delegation predicate: which requests go-be does NOT serve natively (yet) and forwards to the
 // php backend instead. Each reason is metric-counted; the set shrinks as ports land.
 package quote
 
 import (
 	"net/http"
 
-	"github.com/eurosender/go-ba/internal/delegate"
+	"github.com/eurosender/go-be/internal/delegate"
 )
 
 // delegationReason returns the first matching pre-pipeline delegation reason, or "".
@@ -50,7 +50,7 @@ func delegationReason(req *Request, hdr http.Header) string {
 }
 
 // fedexAddressedReason is the post-pipeline check: fully-addressed request whose priced result
-// involves a FedEx-group courier — php runs live FedEx availability/IPE checks there that go-ba
+// involves a FedEx-group courier — php runs live FedEx availability/IPE checks there that go-be
 // does not replicate. Returns "" when the native answer is safe.
 func fedexAddressedReason(d *quoteData, r *peResp) string {
 	fullyAddressed := nonEmpty(d.pickupZip) && nonEmpty(d.pickupCity) && nonEmpty(d.deliveryZip) && nonEmpty(d.deliveryCity)

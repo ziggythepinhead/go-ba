@@ -1,7 +1,7 @@
-# go-ba
+# go-be
 
 Go quote orchestrator for `POST /api/v2/quote` — the backend counterpart to go-pe. Design and
-rationale: `~/work/ai/go-ba/ARCHITECTURE_REVIEW_2026-07-10_by_Claude.md`.
+rationale: `~/work/ai/go-be/ARCHITECTURE_REVIEW_2026-07-10_by_Claude.md`.
 
 ## Phase 0 (this state): corpus gate
 
@@ -29,11 +29,11 @@ proven volatile — none needed so far.
 
 ## Architecture: native fast path + detect-and-delegate
 
-go-ba serves the guest quote fast path natively (snapshot + one PE bulk call, php-parity per the
-specs in `~/work/ai/go-ba/specs/`) and **delegates whole requests to the php backend** whenever a
-request needs an unported feature or the native path fails — go-ba never improvises an answer.
-Delegation reasons (metric `go_ba_delegated_total{reason}`, each disable-able via
-`GO_BA_DELEGATE_DISABLE` csv): `auth` (Authorization/x-api-key), `coupon`, `vanftl` (van/truck
+go-be serves the guest quote fast path natively (snapshot + one PE bulk call, php-parity per the
+specs in `~/work/ai/go-be/specs/`) and **delegates whole requests to the php backend** whenever a
+request needs an unported feature or the native path fails — go-be never improvises an answer.
+Delegation reasons (metric `go_be_delegated_total{reason}`, each disable-able via
+`GO_BE_DELEGATE_DISABLE` csv): `auth` (Authorization/x-api-key), `coupon`, `vanftl` (van/truck
 parcels, selected 9/10/14/15, routeDistance), `courier-pin` (courierId), `source` (not
 website/app), `value` (declared shipment/parcel values → courier insurances), `fedex-addressed`
 (fully-addressed + FedEx-priced: php runs live FedEx availability/IPE), `error` (catch-all,
@@ -43,14 +43,14 @@ Endpoints:
 - `POST /api/v2/quote` — native or delegated per the predicate above.
 - `GET /api/v2/countries/blocked-routes` — native: automated half = "no prices, no route" (11 PE
   probes per (pair, userType), cached per PE version; optional full warm via
-  `GO_BA_BLOCKED_ROUTES_WARM=1`), simplified half = `enabled_simplified_routes` snapshot config.
+  `GO_BE_BLOCKED_ROUTES_WARM=1`), simplified half = `enabled_simplified_routes` snapshot config.
   Authenticated calls (top clients) delegate to php. Verified 35/35 (pairs × userTypes)
   compute-vs-compute against local php.
 
-Env: `GO_BA_MYSQL_DSN`, `GO_BA_PE_URL`, `GO_BA_PE_SECRET`, `GO_BA_PE_VERSION` (dev pin),
-`GO_BA_PHP_URL` (+`GO_BA_PHP_HOST_HEADER` for devbox nginx, `GO_BA_PHP_TIMEOUT`),
-`GO_BA_DELEGATE_DISABLE`, `GO_BA_BLOCKED_ROUTES_WARM`, `GO_BA_LISTEN_ADDR`,
-`GO_BA_SNAPSHOT_POLL_INTERVAL`.
+Env: `GO_BE_MYSQL_DSN`, `GO_BE_PE_URL`, `GO_BE_PE_SECRET`, `GO_BE_PE_VERSION` (dev pin),
+`GO_BE_PHP_URL` (+`GO_BE_PHP_HOST_HEADER` for devbox nginx, `GO_BE_PHP_TIMEOUT`),
+`GO_BE_DELEGATE_DISABLE`, `GO_BE_BLOCKED_ROUTES_WARM`, `GO_BE_LISTEN_ADDR`,
+`GO_BE_SNAPSHOT_POLL_INTERVAL`.
 
 ## Next phases (see the architecture review §12)
 

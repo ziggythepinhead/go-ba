@@ -1,4 +1,4 @@
-module github.com/eurosender/go-ba
+module github.com/eurosender/go-be
 
 go 1.24.0
 
